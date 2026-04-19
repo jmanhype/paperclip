@@ -1,4 +1,4 @@
-import type { ServerAdapterModule } from "./types.js";
+import type { AdapterExecutionContext, ServerAdapterModule } from "./types.js";
 import { getAdapterSessionManagement } from "@paperclipai/adapter-utils";
 import {
   execute as claudeExecute,
@@ -200,9 +200,99 @@ const piLocalAdapter: ServerAdapterModule = {
   agentConfigurationDoc: piAgentConfigurationDoc,
 };
 
+const HERMES_SAFE_PROMPT_TEMPLATE = String.raw`You are "{{agentName}}", an AI agent employee in a Paperclip-managed company.
+
+IMPORTANT: For ALL Paperclip API calls, use \`Authorization: Bearer $PAPERCLIP_API_KEY\`.
+For every mutating Paperclip API call (POST, PATCH, DELETE), also include \`X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID\`.
+Never call \`{{paperclipApiUrl}}\` without those headers. Unauthenticated localhost calls are treated as \`local-board\` and can create false comment wakes or reopen finished issues.
+
+Your Paperclip identity:
+  Agent ID: {{agentId}}
+  Company ID: {{companyId}}
+  API Base: {{paperclipApiUrl}}
+
+Command patterns:
+- Read-only call:
+  \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/ISSUE_ID"\`
+- Mutating call:
+  \`curl -s -X PATCH "{{paperclipApiUrl}}/issues/ISSUE_ID" -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" -H "Content-Type: application/json" -d '{"status":"done"}'\`
+
+{{#taskId}}
+## Assigned Task
+
+Issue ID: {{taskId}}
+Title: {{taskTitle}}
+
+{{taskBody}}
+
+Workflow:
+1. Read the issue:
+   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/{{taskId}}" | python3 -m json.tool\`
+2. Do the work.
+3. When done, mark the issue done:
+   \`curl -s -X PATCH "{{paperclipApiUrl}}/issues/{{taskId}}" -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" -H "Content-Type: application/json" -d '{"status":"done"}'\`
+4. Post exactly one completion comment:
+   \`curl -s -X POST "{{paperclipApiUrl}}/issues/{{taskId}}/comments" -H "Authorization: Bearer $PAPERCLIP_API_KEY" -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" -H "Content-Type: application/json" -d '{"body":"DONE: <your summary here>"}'\`
+{{/taskId}}
+
+{{#commentId}}
+## Comment on This Issue
+
+Read the comment:
+  \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/issues/{{taskId}}/comments/{{commentId}}" | python3 -m json.tool\`
+
+Address the comment, POST a reply if needed using the same auth + run-id headers, then continue working.
+{{/commentId}}
+
+{{#noTask}}
+## Heartbeat Wake — Check for Work
+
+1. List assigned open issues only:
+   \`curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" "{{paperclipApiUrl}}/companies/{{companyId}}/issues?assigneeAgentId={{agentId}}&status=todo,in_progress,in_review,blocked" | python3 -m json.tool\`
+2. Prioritize \`in_progress\` first, then \`in_review\`, then \`todo\`.
+3. Do not search or self-assign unassigned backlog unless explicitly instructed.
+{{/noTask}}`;
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
+}
+
+function prepareHermesExecutionContext(ctx: AdapterExecutionContext): AdapterExecutionContext {
+  const agent = ctx.agent ?? { id: "", companyId: "", name: "Hermes Agent", adapterType: "hermes_local", adapterConfig: {} };
+  const adapterConfig = asRecord(agent.adapterConfig);
+  const env = asRecord(adapterConfig.env);
+  const hasPromptTemplate =
+    typeof adapterConfig.promptTemplate === "string" && adapterConfig.promptTemplate.trim().length > 0;
+  const hasExplicitApiKey = typeof env.PAPERCLIP_API_KEY === "string" && env.PAPERCLIP_API_KEY.trim().length > 0;
+
+  if (!hasExplicitApiKey && typeof ctx.authToken === "string" && ctx.authToken.trim().length > 0) {
+    env.PAPERCLIP_API_KEY = ctx.authToken.trim();
+  }
+  if (Object.keys(env).length > 0) {
+    adapterConfig.env = env;
+  }
+  if (!hasPromptTemplate) {
+    adapterConfig.promptTemplate = HERMES_SAFE_PROMPT_TEMPLATE;
+  }
+
+  return {
+    ...ctx,
+    agent: {
+      ...agent,
+      adapterConfig,
+    },
+  };
+}
+
+async function executeHermesWithPaperclipAuth(ctx: AdapterExecutionContext) {
+  return hermesExecute(prepareHermesExecutionContext(ctx));
+}
+
 const hermesLocalAdapter: ServerAdapterModule = {
   type: "hermes_local",
-  execute: hermesExecute,
+  execute: executeHermesWithPaperclipAuth,
   testEnvironment: hermesTestEnvironment,
   sessionCodec: hermesSessionCodec,
   listSkills: hermesListSkills,
