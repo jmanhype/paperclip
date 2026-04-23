@@ -34,6 +34,8 @@ pnpm paperclipai issue release <issue-id>
 
 ```sh
 pnpm paperclipai company list
+pnpm paperclipai company use HOL
+pnpm paperclipai company use "Hollywood Studio" --by name
 pnpm paperclipai company get <company-id>
 
 # Export to portable folder package (writes manifest + markdown files)

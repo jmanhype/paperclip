@@ -15,6 +15,12 @@ import type {
 import { getTelemetryClient, trackCompanyImported } from "../../telemetry.js";
 import { ApiRequestError } from "../../client/http.js";
 import { openUrl } from "../../client/board-auth.js";
+import {
+  readContext,
+  resolveContextPath,
+  setCurrentProfile,
+  upsertProfile,
+} from "../../client/context.js";
 import { binaryContentTypeByExtension, readZipArchive } from "./zip.js";
 import {
   addCommonClientOptions,
@@ -32,6 +38,7 @@ import {
 
 interface CompanyCommandOptions extends BaseClientOptions {}
 type CompanyDeleteSelectorMode = "auto" | "id" | "prefix";
+type CompanySelectionMode = "auto" | "id" | "prefix" | "name";
 type CompanyImportTargetMode = "new" | "existing";
 type CompanyCollisionMode = "rename" | "skip" | "replace";
 
@@ -39,6 +46,10 @@ interface CompanyDeleteOptions extends BaseClientOptions {
   by?: CompanyDeleteSelectorMode;
   yes?: boolean;
   confirm?: string;
+}
+
+interface CompanyUseOptions extends BaseClientOptions {
+  by?: CompanySelectionMode;
 }
 
 interface CompanyExportOptions extends BaseClientOptions {
@@ -997,6 +1008,48 @@ function matchesPrefix(company: Company, selector: string): boolean {
   return company.issuePrefix.toUpperCase() === selector.toUpperCase();
 }
 
+function matchesName(company: Company, selector: string): boolean {
+  return company.name.trim().toLowerCase() === selector.trim().toLowerCase();
+}
+
+export function resolveCompanyForContextSelection(
+  companies: Company[],
+  selectorRaw: string,
+  by: CompanySelectionMode = "auto",
+): Company {
+  const selector = normalizeSelector(selectorRaw);
+  if (!selector) throw new Error("Company selector is required.");
+  const idMatch = companies.find((company) => company.id === selector);
+  const prefixMatch = companies.find((company) => matchesPrefix(company, selector));
+  const nameMatches = companies.filter((company) => matchesName(company, selector));
+  if (by === "id") {
+    if (!idMatch) throw new Error(`No company found by ID '${selector}'.`);
+    return idMatch;
+  }
+  if (by === "prefix") {
+    if (!prefixMatch) throw new Error(`No company found by shortname/prefix '${selector}'.`);
+    return prefixMatch;
+  }
+  if (by === "name") {
+    if (nameMatches.length === 0) throw new Error(`No company found by exact name '${selector}'.`);
+    if (nameMatches.length > 1) {
+      throw new Error(`Company name '${selector}' is ambiguous. Re-run with an ID or issue prefix.`);
+    }
+    return nameMatches[0]!;
+  }
+  const uniqueMatches = new Map<string, Company>();
+  if (idMatch) uniqueMatches.set(idMatch.id, idMatch);
+  if (prefixMatch) uniqueMatches.set(prefixMatch.id, prefixMatch);
+  if (nameMatches.length === 1) uniqueMatches.set(nameMatches[0]!.id, nameMatches[0]!);
+  if (uniqueMatches.size === 1) return uniqueMatches.values().next().value as Company;
+  if (uniqueMatches.size > 1 || nameMatches.length > 1) {
+    throw new Error(`Selector '${selector}' is ambiguous. Re-run with --by id, --by prefix, or --by name.`);
+  }
+  throw new Error(
+    `No company found for selector '${selector}'. Use company ID, exact name, or issue prefix (for example PAP).`,
+  );
+}
+
 export function resolveCompanyForDeletion(
   companies: Company[],
   selectorRaw: string,
@@ -1070,6 +1123,31 @@ function assertDeleteFlags(opts: CompanyDeleteOptions): void {
   }
 }
 
+async function promptForCompanyContextSelection(
+  companies: Company[],
+  opts?: { currentCompanyId?: string },
+): Promise<Company> {
+  if (companies.length === 0) throw new Error("No companies are available for this account.");
+  if (!isInteractiveTerminal()) {
+    throw new Error(
+      "Company selector is required in non-interactive mode. Pass a company ID, exact name, or issue prefix.",
+    );
+  }
+  const selection = await p.select({
+    message: "Choose a company for the current CLI context",
+    options: companies
+      .slice()
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .map((company) => ({
+        value: company.id,
+        label: company.id === opts?.currentCompanyId ? `${company.name} (current)` : company.name,
+        hint: `${company.issuePrefix} · ${company.id}`,
+      })),
+  });
+  if (p.isCancel(selection)) throw new Error("Company selection cancelled.");
+  return companies.find((company) => company.id === selection) ?? companies[0]!;
+}
+
 export function registerCompanyCommands(program: Command): void {
   const company = program.command("company").description("Company operations");
 
@@ -1094,6 +1172,7 @@ export function registerCompanyCommands(program: Command): void {
           const formatted = rows.map((row) => ({
             id: row.id,
             name: row.name,
+            ...(row.id === ctx.companyId ? { current: true } : {}),
             status: row.status,
             budgetMonthlyCents: row.budgetMonthlyCents,
             spentMonthlyCents: row.spentMonthlyCents,
@@ -1102,6 +1181,58 @@ export function registerCompanyCommands(program: Command): void {
           for (const row of formatted) {
             console.log(formatInlineRecord(row));
           }
+        } catch (err) {
+          handleCommandError(err);
+        }
+      }),
+  );
+
+  addCommonClientOptions(
+    company
+      .command("use")
+      .description("Set the default company on the current CLI context profile")
+      .argument("[selector]", "Company ID, exact company name, or issue prefix (for example PAP)")
+      .option("--by <mode>", "Selector mode: auto | id | prefix | name", "auto")
+      .action(async (selector: string | undefined, opts: CompanyUseOptions) => {
+        try {
+          const store = readContext(opts.context);
+          const targetProfileName = opts.profile?.trim() || store.currentProfile || "default";
+          const targetProfile = store.profiles[targetProfileName];
+          const ctx = resolveCommandContext(opts);
+          const rows = (await ctx.api.get<Company[]>("/api/companies")) ?? [];
+          const by = (opts.by ?? "auto").trim().toLowerCase() as CompanySelectionMode;
+          if (!["auto", "id", "prefix", "name"].includes(by)) {
+            throw new Error(`Invalid --by mode '${opts.by}'. Expected one of: auto, id, prefix, name.`);
+          }
+          const companyRecord = selector?.trim()
+            ? resolveCompanyForContextSelection(rows, selector, by)
+            : await promptForCompanyContextSelection(rows, { currentCompanyId: ctx.companyId });
+          upsertProfile(
+            targetProfileName,
+            {
+              apiBase: targetProfile?.apiBase ?? ctx.profile.apiBase ?? ctx.api.apiBase,
+              companyId: companyRecord.id,
+              apiKeyEnvVarName: targetProfile?.apiKeyEnvVarName ?? ctx.profile.apiKeyEnvVarName,
+            },
+            opts.context,
+          );
+          setCurrentProfile(targetProfileName, opts.context);
+          const updated = readContext(opts.context);
+          const payload = {
+            contextPath: resolveContextPath(opts.context),
+            currentProfile: updated.currentProfile,
+            profileName: targetProfileName,
+            companyId: companyRecord.id,
+            companyName: companyRecord.name,
+            issuePrefix: companyRecord.issuePrefix,
+            profile: updated.profiles[targetProfileName],
+          };
+          if (!ctx.json) {
+            console.log(
+              pc.green(`Active company set to '${companyRecord.name}' (${companyRecord.issuePrefix}) on profile '${targetProfileName}'.`),
+            );
+          }
+          printOutput(payload, { json: ctx.json });
         } catch (err) {
           handleCommandError(err);
         }

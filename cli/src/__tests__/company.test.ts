@@ -1,16 +1,82 @@
+import { Command } from "commander";
 import { describe, expect, it } from "vitest";
-import type { CompanyPortabilityPreviewResult } from "@paperclipai/shared";
+import type { Company, CompanyPortabilityPreviewResult } from "@paperclipai/shared";
 import {
   buildCompanyDashboardUrl,
   buildDefaultImportAdapterOverrides,
   buildDefaultImportSelectionState,
   buildImportSelectionCatalog,
   buildSelectedFilesFromImportSelection,
+  registerCompanyCommands,
   renderCompanyImportPreview,
   renderCompanyImportResult,
+  resolveCompanyForContextSelection,
   resolveCompanyImportApplyConfirmationMode,
   resolveCompanyImportApiPath,
 } from "../commands/client/company.js";
+
+function makeCompany(overrides: Partial<Company> = {}): Company {
+  return {
+    id: "company-123",
+    name: "Hollywood Studio",
+    description: null,
+    status: "active",
+    pauseReason: null,
+    pausedAt: null,
+    issuePrefix: "HOL",
+    issueCounter: 0,
+    budgetMonthlyCents: 0,
+    spentMonthlyCents: 0,
+    requireBoardApprovalForNewAgents: false,
+    feedbackDataSharingEnabled: false,
+    feedbackDataSharingConsentAt: null,
+    feedbackDataSharingConsentByUserId: null,
+    feedbackDataSharingTermsVersion: null,
+    brandColor: null,
+    logoAssetId: null,
+    logoUrl: null,
+    createdAt: new Date("2026-04-21T00:00:00.000Z"),
+    updatedAt: new Date("2026-04-21T00:00:00.000Z"),
+    ...overrides,
+  };
+}
+
+describe("registerCompanyCommands", () => {
+  it("registers company use with a single --by flag", () => {
+    const program = new Command();
+
+    expect(() => registerCompanyCommands(program)).not.toThrow();
+
+    const company = program.commands.find((command) => command.name() === "company");
+    const use = company?.commands.find((command) => command.name() === "use");
+    expect(use).toBeDefined();
+    expect(use?.options.filter((option) => option.long === "--by")).toHaveLength(1);
+  });
+});
+
+describe("resolveCompanyForContextSelection", () => {
+  const companies = [
+    makeCompany(),
+    makeCompany({ id: "company-456", name: "Taste Engine", issuePrefix: "TAS" }),
+  ];
+
+  it("matches a company by issue prefix in auto mode", () => {
+    expect(resolveCompanyForContextSelection(companies, "HOL").id).toBe("company-123");
+  });
+
+  it("matches a company by exact name", () => {
+    expect(resolveCompanyForContextSelection(companies, "Taste Engine", "name").id).toBe("company-456");
+  });
+
+  it("throws on ambiguous auto matches", () => {
+    const ambiguous = [
+      makeCompany({ id: "company-123", name: "Alpha", issuePrefix: "AAA" }),
+      makeCompany({ id: "AAA", name: "Bravo", issuePrefix: "BBB" }),
+    ];
+
+    expect(() => resolveCompanyForContextSelection(ambiguous, "AAA")).toThrow(/ambiguous/i);
+  });
+});
 
 describe("resolveCompanyImportApiPath", () => {
   it("uses company-scoped preview route for existing-company dry runs", () => {

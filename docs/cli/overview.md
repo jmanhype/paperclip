@@ -48,6 +48,10 @@ pnpm paperclipai context list
 
 # Switch profile
 pnpm paperclipai context use default
+
+# Switch the active company on the current profile
+pnpm paperclipai company use HOL
+pnpm paperclipai company use "Hollywood Studio" --by name
 ```
 
 To avoid storing secrets in context, use an env var:
