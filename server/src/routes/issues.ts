@@ -347,7 +347,7 @@ export function issueRoutes(
 
   async function assertCanManageIssueApprovalLinks(req: Request, res: Response, companyId: string) {
     assertCompanyAccess(req, companyId);
-    if (req.actor.type === "board") return true;
+    if (req.actor.type === "board" || req.actor.isInstanceAdmin) return true;
     if (!req.actor.agentId) {
       res.status(403).json({ error: "Agent authentication required" });
       return false;
@@ -364,6 +364,7 @@ export function issueRoutes(
 
   function actorCanAccessCompany(req: Request, companyId: string) {
     if (req.actor.type === "none") return false;
+    if (req.actor.isInstanceAdmin) return true;
     if (req.actor.type === "agent") return req.actor.companyId === companyId;
     if (req.actor.source === "local_implicit" || req.actor.isInstanceAdmin) return true;
     return (req.actor.companyIds ?? []).includes(companyId);
@@ -384,6 +385,7 @@ export function issueRoutes(
       return;
     }
     if (req.actor.type === "agent") {
+      if (req.actor.isInstanceAdmin) return;
       if (!req.actor.agentId) throw forbidden("Agent authentication required");
       const allowedByGrant = await access.hasPermission(companyId, "agent", req.actor.agentId, "tasks:assign");
       if (allowedByGrant) return;

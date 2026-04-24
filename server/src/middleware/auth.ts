@@ -18,6 +18,12 @@ interface ActorMiddlewareOptions {
   resolveSession?: (req: Request) => Promise<BetterAuthSessionResult | null>;
 }
 
+function isEnabled(raw: string | undefined): boolean {
+  if (!raw) return false;
+  const normalized = raw.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
 export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHandler {
   const boardAuth = boardAuthService(db);
   return async (req, _res, next) => {
@@ -81,6 +87,7 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
       next();
       return;
     }
+    const agentGlobalAccess = isEnabled(process.env.PAPERCLIP_AGENT_GLOBAL_ACCESS);
 
     const boardKey = await boardAuth.findBoardApiKeyByToken(token);
     if (boardKey) {
@@ -135,6 +142,8 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
         type: "agent",
         agentId: claims.sub,
         companyId: claims.company_id,
+        userId: agentGlobalAccess ? claims.sub : undefined,
+        isInstanceAdmin: agentGlobalAccess,
         keyId: undefined,
         runId: runIdHeader || claims.run_id || undefined,
         source: "agent_jwt",
@@ -163,6 +172,8 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
       type: "agent",
       agentId: key.agentId,
       companyId: key.companyId,
+      userId: agentGlobalAccess ? key.agentId : undefined,
+      isInstanceAdmin: agentGlobalAccess,
       keyId: key.id,
       runId: runIdHeader || undefined,
       source: "agent_key",

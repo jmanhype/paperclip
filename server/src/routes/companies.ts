@@ -62,6 +62,7 @@ export function companyRoutes(db: Db, storage?: StorageService) {
   async function assertCanUpdateBranding(req: Request, companyId: string) {
     assertCompanyAccess(req, companyId);
     if (req.actor.type === "board") return;
+    if (req.actor.isInstanceAdmin) return;
     if (!req.actor.agentId) throw forbidden("Agent authentication required");
 
     const actorAgent = await agents.getById(req.actor.agentId);
@@ -76,6 +77,7 @@ export function companyRoutes(db: Db, storage?: StorageService) {
   async function assertCanManagePortability(req: Request, companyId: string, capability: "imports" | "exports") {
     assertCompanyAccess(req, companyId);
     if (req.actor.type === "board") return;
+    if (req.actor.isInstanceAdmin) return;
     if (!req.actor.agentId) throw forbidden("Agent authentication required");
 
     const actorAgent = await agents.getById(req.actor.agentId);
@@ -307,7 +309,7 @@ export function companyRoutes(db: Db, storage?: StorageService) {
     }
     let body: Record<string, unknown>;
 
-    if (req.actor.type === "agent") {
+    if (req.actor.type === "agent" && !req.actor.isInstanceAdmin) {
       // Only CEO agents may update company branding fields
       const agentSvc = agentService(db);
       const actorAgent = req.actor.agentId ? await agentSvc.getById(req.actor.agentId) : null;

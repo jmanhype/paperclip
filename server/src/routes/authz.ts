@@ -7,14 +7,18 @@ export function assertAuthenticated(req: Request) {
   }
 }
 
+export function hasElevatedAgentAccess(req: Request) {
+  return req.actor.type === "agent" && Boolean(req.actor.isInstanceAdmin);
+}
+
 export function assertBoard(req: Request) {
-  if (req.actor.type !== "board") {
+  if (req.actor.type !== "board" && !hasElevatedAgentAccess(req)) {
     throw forbidden("Board access required");
   }
 }
 
 export function assertInstanceAdmin(req: Request) {
-  assertBoard(req);
+  assertAuthenticated(req);
   if (req.actor.source === "local_implicit" || req.actor.isInstanceAdmin) {
     return;
   }
@@ -23,7 +27,7 @@ export function assertInstanceAdmin(req: Request) {
 
 export function assertCompanyAccess(req: Request, companyId: string) {
   assertAuthenticated(req);
-  if (req.actor.type === "agent" && req.actor.companyId !== companyId) {
+  if (req.actor.type === "agent" && !req.actor.isInstanceAdmin && req.actor.companyId !== companyId) {
     throw forbidden("Agent key cannot access another company");
   }
   if (req.actor.type === "board" && req.actor.source !== "local_implicit" && !req.actor.isInstanceAdmin) {

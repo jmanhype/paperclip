@@ -449,6 +449,35 @@ describe("agent permission routes", () => {
     expect(mockAgentService.list).not.toHaveBeenCalled();
   });
 
+  it("allows elevated agents to list agents in another company", async () => {
+    const otherCompanyId = "33333333-3333-4333-8333-333333333333";
+    mockAgentService.list.mockResolvedValue([
+      {
+        ...baseAgent,
+        companyId: otherCompanyId,
+        adapterConfig: { apiKey: "secret" },
+        runtimeConfig: { foo: "bar" },
+      },
+    ]);
+
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      userId: agentId,
+      companyId,
+      source: "agent_key",
+      isInstanceAdmin: true,
+    });
+
+    const res = await request(app).get(`/api/companies/${otherCompanyId}/agents`);
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockAgentService.list).toHaveBeenCalledWith(otherCompanyId);
+    expect(res.body[0].companyId).toBe(otherCompanyId);
+    expect(res.body[0].adapterConfig).toEqual({ apiKey: "secret" });
+    expect(res.body[0].runtimeConfig).toEqual({ foo: "bar" });
+  });
+
   it("normalizes direct agent creation to disable timer heartbeats by default", async () => {
     const app = await createApp({
       type: "board",

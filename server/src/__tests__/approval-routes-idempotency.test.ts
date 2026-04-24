@@ -196,6 +196,42 @@ describe("approval routes idempotent retries", () => {
     expect(mockApprovalService.requestRevision).not.toHaveBeenCalled();
   });
 
+  it("allows elevated agents to approve cross-company approvals", async () => {
+    mockApprovalService.getById.mockResolvedValue({
+      id: "approval-2",
+      companyId: "company-2",
+      type: "hire_agent",
+      status: "pending",
+      payload: {},
+      requestedByAgentId: null,
+    });
+    mockApprovalService.approve.mockResolvedValue({
+      approval: {
+        id: "approval-2",
+        companyId: "company-2",
+        type: "hire_agent",
+        status: "approved",
+        payload: {},
+        requestedByAgentId: null,
+      },
+      applied: true,
+    });
+
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      userId: "agent-1",
+      companyId: "company-1",
+      source: "agent_key",
+      isInstanceAdmin: true,
+    }))
+      .post("/api/approvals/approval-2/approve")
+      .send({});
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockApprovalService.approve).toHaveBeenCalledWith("approval-2", "agent-1", undefined);
+  });
+
   it("derives approval attribution from the authenticated actor on approve", async () => {
     mockApprovalService.getById.mockResolvedValue({
       id: "approval-4",

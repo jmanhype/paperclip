@@ -149,6 +149,25 @@ describeEmbeddedPostgres("workspace runtime service authz helper", () => {
     })).resolves.toBeUndefined();
   });
 
+  it("allows elevated agents to manage project workspace runtime services across companies", async () => {
+    const companyId = await seedCompany();
+    const { projectWorkspaceId } = await seedProjectWorkspace(companyId);
+
+    await expect(assertCanManageProjectWorkspaceRuntimeServices(db, {
+      actor: {
+        type: "agent",
+        agentId: randomUUID(),
+        userId: randomUUID(),
+        companyId: randomUUID(),
+        source: "agent_key",
+        isInstanceAdmin: true,
+      },
+    } as any, {
+      companyId,
+      projectWorkspaceId,
+    })).resolves.toBeUndefined();
+  });
+
   it("allows agents with a non-terminal assigned issue in the target project workspace", async () => {
     const companyId = await seedCompany();
     const { projectId, projectWorkspaceId } = await seedProjectWorkspace(companyId);

@@ -49,7 +49,7 @@ vi.mock("../services/index.js", () => ({
   logActivity: mockLogActivity,
 }));
 
-function createCompany() {
+function createCompany(overrides: Record<string, unknown> = {}) {
   const now = new Date("2026-03-19T02:00:00.000Z");
   return {
     id: "company-1",
@@ -66,6 +66,7 @@ function createCompany() {
     logoUrl: "/api/assets/11111111-1111-4111-8111-111111111111/content",
     createdAt: now,
     updatedAt: now,
+    ...overrides,
   };
 }
 
@@ -161,6 +162,37 @@ describe("PATCH /api/companies/:companyId/branding", () => {
         },
       }),
     );
+  });
+
+  it("allows elevated agent callers to update branding across companies", async () => {
+    const company = createCompany({ id: "company-2" });
+    mockCompanyService.update.mockResolvedValue({
+      ...company,
+      brandColor: "#654321",
+      logoAssetId: null,
+      logoUrl: null,
+    });
+
+    const app = await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      userId: "agent-1",
+      companyId: "company-1",
+      source: "agent_key",
+      runId: "run-1",
+      isInstanceAdmin: true,
+    });
+
+    const res = await request(app)
+      .patch("/api/companies/company-2/branding")
+      .send({ brandColor: "#654321", logoAssetId: null });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanyService.update).toHaveBeenCalledWith("company-2", {
+      brandColor: "#654321",
+      logoAssetId: null,
+    });
+    expect(mockAgentService.getById).not.toHaveBeenCalled();
   });
 
   it("allows board callers to update branding fields", async () => {

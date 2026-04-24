@@ -59,6 +59,9 @@ async function assertAgentCanManageRuntimeServicesForWorkspace(
   if (req.actor.type !== "agent" || !req.actor.agentId) {
     throw forbidden("Agent authentication required");
   }
+  if (req.actor.isInstanceAdmin) {
+    return;
+  }
 
   const actorAgent = await db
     .select({

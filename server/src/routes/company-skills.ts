@@ -67,6 +67,9 @@ export function companySkillRoutes(db: Db) {
     if (!req.actor.agentId) {
       throw forbidden("Agent authentication required");
     }
+    if (req.actor.isInstanceAdmin) {
+      return;
+    }
 
     const actorAgent = await agents.getById(req.actor.agentId);
     if (!actorAgent || actorAgent.companyId !== companyId) {

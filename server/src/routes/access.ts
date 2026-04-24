@@ -1803,6 +1803,7 @@ export function accessRoutes(
   ) {
     assertCompanyAccess(req, companyId);
     if (req.actor.type === "agent") {
+      if (req.actor.isInstanceAdmin) return;
       if (!req.actor.agentId) throw forbidden();
       const allowed = await access.hasPermission(
         companyId,
@@ -1829,6 +1830,7 @@ export function accessRoutes(
   ) {
     assertCompanyAccess(req, companyId);
     if (req.actor.type === "agent") {
+      if (req.actor.isInstanceAdmin) return;
       if (!req.actor.agentId) throw forbidden("Agent authentication required");
       const actorAgent = await agents.getById(req.actor.agentId);
       if (!actorAgent || actorAgent.companyId !== companyId) {

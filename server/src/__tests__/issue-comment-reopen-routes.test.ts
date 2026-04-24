@@ -709,4 +709,37 @@ describe("issue comment reopen routes", () => {
       }),
     );
   });
+
+  it("allows elevated agents to retarget issues across companies", async () => {
+    const issue = {
+      ...makeIssue("todo"),
+      companyId: "company-2",
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockResolvedValue({
+      ...issue,
+      assigneeAgentId: "33333333-3333-4333-8333-333333333333",
+    });
+
+    const app = await installActor(createApp(), {
+      type: "agent",
+      agentId: "agent-1",
+      userId: "agent-1",
+      companyId: "company-1",
+      source: "agent_key",
+      runId: "run-1",
+      isInstanceAdmin: true,
+    });
+
+    const res = await request(app)
+      .patch(`/api/issues/${issue.id}`)
+      .send({ assigneeAgentId: "33333333-3333-4333-8333-333333333333" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockIssueService.update).toHaveBeenCalledWith(
+      issue.id,
+      expect.objectContaining({ assigneeAgentId: "33333333-3333-4333-8333-333333333333" }),
+    );
+    expect(mockAccessService.hasPermission).not.toHaveBeenCalled();
+  });
 });

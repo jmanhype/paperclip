@@ -224,6 +224,7 @@ export function agentRoutes(db: Db) {
       return null;
     }
     if (!req.actor.agentId) throw forbidden("Agent authentication required");
+    if (req.actor.isInstanceAdmin) return null;
     const actorAgent = await svc.getById(req.actor.agentId);
     if (!actorAgent || actorAgent.companyId !== companyId) {
       throw forbidden("Agent key cannot access another company");
@@ -269,6 +270,7 @@ export function agentRoutes(db: Db) {
       return access.canUser(companyId, req.actor.userId, "agents:create");
     }
     if (!req.actor.agentId) return false;
+    if (req.actor.isInstanceAdmin) return true;
     const actorAgent = await svc.getById(req.actor.agentId);
     if (!actorAgent || actorAgent.companyId !== companyId) return false;
     const allowedByGrant = await access.hasPermission(companyId, "agent", actorAgent.id, "agents:create");
@@ -349,6 +351,7 @@ export function agentRoutes(db: Db) {
       return;
     }
     if (!req.actor.agentId) throw forbidden("Agent authentication required");
+    if (req.actor.isInstanceAdmin) return;
 
     const actorAgent = await svc.getById(req.actor.agentId);
     if (!actorAgent || actorAgent.companyId !== targetAgent.companyId) {
@@ -374,6 +377,7 @@ export function agentRoutes(db: Db) {
       return;
     }
     if (!req.actor.agentId) throw forbidden("Agent authentication required");
+    if (req.actor.isInstanceAdmin) return;
 
     const actorAgent = await svc.getById(req.actor.agentId);
     if (!actorAgent || actorAgent.companyId !== targetAgent.companyId) {

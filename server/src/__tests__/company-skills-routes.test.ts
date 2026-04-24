@@ -269,6 +269,27 @@ describe("company skill mutation permissions", () => {
     );
   });
 
+  it("allows elevated agents to mutate company skills across companies", async () => {
+    const res = await request(await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      userId: "agent-1",
+      companyId: "company-1",
+      source: "agent_key",
+      runId: "run-1",
+      isInstanceAdmin: true,
+    }))
+      .post("/api/companies/company-2/skills/import")
+      .send({ source: "https://github.com/vercel-labs/agent-browser" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith(
+      "company-2",
+      "https://github.com/vercel-labs/agent-browser",
+    );
+    expect(mockAgentService.getById).not.toHaveBeenCalled();
+  });
+
   it("returns a blocking error when attempting to delete a skill still used by agents", async () => {
     const { unprocessable } = await import("../errors.js");
     mockCompanySkillService.deleteSkill.mockImplementationOnce(async () => {
