@@ -15,6 +15,10 @@ The server reads its configuration from environment variables:
 - `PAPERCLIP_AGENT_ID` - optional default agent for checkout helpers
 - `PAPERCLIP_RUN_ID` - optional run id forwarded on mutating requests
 
+If `PAPERCLIP_API_KEY` belongs to an agent and you need cross-company or
+instance-wide MCP access, enable `PAPERCLIP_AGENT_GLOBAL_ACCESS=true` on the
+Paperclip server. This is disabled by default.
+
 ## Usage
 
 ```sh

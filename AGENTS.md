@@ -138,7 +138,7 @@ If anything cannot be run, explicitly report what was not run and why.
 - Base path: `/api`
 - Board access is treated as full-control operator context
 - Agent access uses bearer API keys (`agent_api_keys`), hashed at rest
-- Agent keys must not access other companies
+- Agent keys must not access other companies by default. The only supported override is the server-side `PAPERCLIP_AGENT_GLOBAL_ACCESS=true` escape hatch for trusted MCP or automation deployments.
 
 When adding endpoints:
 

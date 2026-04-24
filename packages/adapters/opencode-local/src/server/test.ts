@@ -94,7 +94,6 @@ export async function testEnvironment(
 
   // Prevent OpenCode from writing an opencode.json into the working directory.
   env.OPENCODE_DISABLE_PROJECT_CONFIG = "true";
-  const preparedRuntimeConfig = await prepareOpenCodeRuntimeConfig({ env, config });
   if (asBoolean(config.dangerouslySkipPermissions, true)) {
     checks.push({
       code: "opencode_headless_permissions_enabled",
@@ -102,8 +101,9 @@ export async function testEnvironment(
       message: "Headless OpenCode external-directory permissions are auto-approved for unattended runs.",
     });
   }
+  let preparedRuntimeConfig: Awaited<ReturnType<typeof prepareOpenCodeRuntimeConfig>> | null = null;
   try {
-    const runtimeEnv = normalizeEnv(ensurePathInEnv({ ...process.env, ...preparedRuntimeConfig.env }));
+    const baseRuntimeEnv = normalizeEnv(ensurePathInEnv({ ...process.env, ...env }));
 
     const cwdInvalid = checks.some((check) => check.code === "opencode_cwd_invalid");
     if (cwdInvalid) {
@@ -115,7 +115,7 @@ export async function testEnvironment(
       });
     } else {
       try {
-        await ensureCommandResolvable(command, cwd, runtimeEnv);
+        await ensureCommandResolvable(command, cwd, baseRuntimeEnv);
         checks.push({
           code: "opencode_command_resolvable",
           level: "info",
@@ -131,8 +131,25 @@ export async function testEnvironment(
       }
     }
 
-    const canRunProbe =
+    let canRunProbe =
       checks.every((check) => check.code !== "opencode_cwd_invalid" && check.code !== "opencode_command_unresolvable");
+
+    if (canRunProbe && checks.some((check) => check.code === "opencode_openai_api_key_missing")) {
+      checks.push({
+        code: "opencode_probe_skipped_auth_config_invalid",
+        level: "warn",
+        message: "Skipped provider/model probe because the configured OPENAI_API_KEY override is invalid.",
+        hint: "Set a valid OPENAI_API_KEY override or remove the override before retrying the environment check.",
+      });
+      canRunProbe = false;
+    }
+
+    const runtimeEnv = canRunProbe
+      ? normalizeEnv(ensurePathInEnv({
+        ...process.env,
+        ...(preparedRuntimeConfig = await prepareOpenCodeRuntimeConfig({ env, config })).env,
+      }))
+      : baseRuntimeEnv;
 
     let modelValidationPassed = false;
     const configuredModel = asString(config.model, "").trim();
@@ -323,7 +340,7 @@ export async function testEnvironment(
       }
     }
   } finally {
-    await preparedRuntimeConfig.cleanup();
+    await preparedRuntimeConfig?.cleanup();
   }
 
   return {
